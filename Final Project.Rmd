@@ -1,0 +1,147 @@
+---
+title: "Final Project"
+output: html_document
+author: "Carrie Bloom"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, comment="")
+library(tidyverse)
+
+#The data sets are rather large, so they may take some time to load into R
+movie_basics<-read.csv("movie_basics.csv")
+ratings<-read.csv("ratings.csv")
+```
+
+```{r, eval=FALSE, include=FALSE}
+movie_ratings<-movie_basics %>%
+  filter(releaseYear != "\\N") %>%
+#releaseYear != "\\N" removes films that are classified as "in development" on IMDb (since those films will not have a user rating) 
+  inner_join(ratings, by = "tconst") %>%
+#Match the avgRating and numVotes by the tconst value (the column shared between both data sets). Some films won't have an average rating (IMDb requres a minimum of five votes); thus, those films will be removed.
+  select(-c(tconst, titleType, isAdult))
+#remove these columns since they are unimportant for our purposes
+
+
+top_eligible<-movie_ratings %>%
+  filter(numVotes>=25000, str_detect(genres, "Documentary")==FALSE)%>%
+#The minimum number of votes needed to be on the IMDb Top 250 is 25000. Also, documentaries are not eligible for IMDb Top 250.
+  mutate(total_score=(numVotes/(numVotes+25000)) * averageRating + (25000/(numVotes+25000)) * mean(averageRating))%>%
+  arrange(desc(total_score))
+#This is (supposedly) the algorithm IMDb uses for the Top 250 rankings. It was obtained from https://www.quora.com/What-algorithm-does-IMDB-use-for-ranking-the-movies-on-its-site.
+  
+top_250<-top_eligible %>%
+  filter(primaryTitle!="The Mountain II" & primaryTitle!="The Chaos Class")%>%
+#My reasoning for removing these films can be seen in Introduction_Goal section ***
+  top_n(250)%>%
+#select the top 250 rows
+  select(primaryTitle, releaseYear, averageRating, total_score)
+#remove columns with unimportant info 
+
+write_csv(movie_ratings, "movie_ratings.csv")
+write_csv(top_eligible, "top_eligible.csv")
+write_csv(top_250, "top_250.csv")
+```
+
+## Introduction
+
+####DATA:
+
+Data was obtained from https://datasets.imdbws.com/. I chose the data sets title.basics.tsv.gz and title.ratings.tsv.gz. Admittedly, I did a lot of preliminary work before inputing the data into R. Why? Because there were A LOT of observations in each dataset. Like, A LOT:
+
+  1. First of all, each dataset has a large number duplicate rows. I honestly don't know why; there was no discernable difference between these rows. Thus, I had to remove the duplicate rows in Excel.
+
+  2. The main preliminary issue, however, was the title.basics dataset. You see, this dataset doesn't contain info solely for film. It contains data for EVERY IMDb entry of EVERY visual media possible. There was an observation for every movie, tv Movie, short, tv series, tv episode, web series, web episode, talk show episode, music video, video game, etc. Pair that with the random duplications, and the tsv file came out to around at least 18 million rows of data! Oy vey! 
+  Excel, like R, can only handle a maximum of roughly 1 million rows. Thus, I had to open the tsv file in NotePad and create multiple tsv files (roughly 22) that fit that size. Afterwards, I opened each one in excel, filtered by titleType==movie (Note: I did not include titleType==tvMovie since IMDb Top 250 does not factor tv movies. Sorry, High School Musical!), removed duplicate rows, and then combined all the filtered datasets into one dataset. Luckily, after all this filtering, they managed to fit into one (very large) dataset! Woo hoo!  
+
+Note that "movie_basics" contains data pertaining solely to IMDb movie entires whereas "ratings" contains data applying to all types of entries.
+.........................................................................
+
+####GOAL:
+
+My initial goal was to use the given data to recreate IMDb's top 250 highest rated films list (https://www.imdb.com/chart/top/?ref_=nv_mv_250) as close as possible. 
+
+Unfortunately, that was impossible with my given data. IMDb weighs certain voters as more important than others (based on how many films the user has rated) while also accounting for outliers, and I don't have that specific data! Instead, it became a matter of comparing my top 250 list to IMDb's 250 list. There are some similarities, but there are also some differences!
+
+For example, there were two films ranked high on my list that weren't on the IMDb Top 250, nor have I ever heard of them: The Mountain II and The Chaos Class. Also, comparing their averageRating to the entires before and after, they seem to be outliers. Apparently, these are both Turkish films. 
+
+***Looking at the rating demographics on IMDb for the Mountain II (https://www.imdb.com/title/tt5813916/ratings?ref_=tt_ov_rt), a majority of the ratings are "non-US" users (AKA: Turkish). The avg. rating for non-US users is 8.7, for US users its 6.8, and for the top 1000 users its 5.2. This is a clearly case where IMDb's method of weighing certain user ratings over others makes sense. The high score is due to a Turkish population bias, but its not representative of the average moviegoers's opinion (like I said, its an extremely biased sample). Its a similar case for The Chaos Class. Thus, I removed these films from my Top 250 dataset.
+
+(Also, I created a csv file consisting solely of the movies and their respective ratings. Just for fun!)
+.........................................................................
+
+## Graphic 1
+This graph will compare how the decade range of top 250 films compare with the decade range of films eligible for top 250 (AKA: Is the Top 250 films biased towards a certain time period?):
+```{r}
+graph2.a<-read.csv("top_eligible.csv")%>%
+  transform(releaseYear=as.character(releaseYear))%>%
+#change releaseYear column from factor to string
+  mutate(decade=str_c(str_sub(releaseYear, 1, 2), str_sub(releaseYear, 3, 3),"0"))%>%
+#make column for decade of film release
+  group_by(decade)%>%
+#group by decade of film
+  count(decade)%>%
+#number of films from that decade
+  transform(decade=as.numeric(as.character(decade)))%>%
+#change decade to from string to double
+  mutate(group="eligible_films", prop=n/sum(n))
+#proportion of total eligible films that are in that decade
+
+graph2.b<-read.csv("top_250.csv")%>%
+  transform(releaseYear=as.character(releaseYear))%>%
+#change releaseYear column from factor to string
+  mutate(decade=str_c(str_sub(releaseYear, 1, 2), str_sub(releaseYear, 3, 3),"0"))%>%
+#make columns decade of film release
+  group_by(decade)%>%
+#group by decade of film
+  count(decade)%>%
+#number of films from that decade
+  transform(decade=as.numeric(as.character(decade)))%>%
+#change decade from string to double
+  mutate(group="top_250_films", prop=n/sum(n))
+#proportion of top 250 films from that decade
+
+rbind(graph2.a, graph2.b)%>%
+#bind the two data sets so we can map them both on the same graph easily!
+  ggplot() +
+    geom_line(mapping = aes(x=decade, y=prop, color=group)) +
+    labs(title="Proportion of Films by Decade", x="Decade", y="Proportion of Collection") +
+    scale_color_discrete(name = "Collection", labels=c("Films eligible for IMDb Top 250","Films in IMDb Top 250"))
+```
+Looking at this graph, it seems like the 1950s were an especially good year for film. Also, it would seem like people rate older films higher than newer films...does that mean old Hollywood produced "better" films? Let's check: 
+.........................................................................
+
+##Graphic 2
+This graph will compare the average rating per decade of film (AKA: What is the highest rated decade of film on IMDb?)
+```{r}
+read.csv("movie_ratings.csv")%>%
+  transform(releaseYear=as.character(releaseYear))%>%
+  filter(numVotes>100)%>%
+#change releaseYear column from factor to string
+  mutate(decade=str_c(str_sub(releaseYear, 1, 2), str_sub(releaseYear, 3, 3),"0"))%>%
+#make column for decade of film release
+  group_by(decade)%>%
+#group by decade of film
+  summarise(avgRating=mean(averageRating))%>%
+#average rating of films for that decade
+  transform(decade=as.numeric(as.character(decade)))%>%
+#transform decade column from string to double
+  ggplot()+
+    geom_point(mapping = aes(x=decade, y=avgRating))+
+    labs(title="Average Movie Rating by Decade", x="Decade", y="Average Rating")
+```
+
+From the above graph, it looks like films from the 1920s have the highest average rating. Post silent era, the 2000s have the lowest average rating. Hmmm, how about we consider films with more than 10000 votes:  
+```{r}
+read.csv("movie_ratings.csv")%>%
+  filter(numVotes>10000)%>%
+  transform(releaseYear=as.character(releaseYear))%>%
+  mutate(decade=str_c(str_sub(releaseYear, 1, 2), str_sub(releaseYear, 3, 3),"0"))%>%
+  group_by(decade)%>%
+  summarise(avgRating=mean(averageRating))%>%
+  transform(decade=as.numeric(as.character(decade)))%>%
+  ggplot()+
+    geom_point(mapping = aes(x=decade, y=avgRating))+
+    labs(title="Average Movie Rating by Decade", x="Decade", y="Average Rating")
+```
+Looking at the above graph, it would seem like film quality has decreased over the years, but of course that's not the case! It just so happens that bad films are lost in time, whereas good films are preserved. More people have seen more "bad" films of more recent years due to accessibility. Thus, its difficult to find what people would consider the "best" decade in film. That's a question for another day!
